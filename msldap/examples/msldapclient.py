@@ -50,6 +50,9 @@ from msldap.wintypes.dnsp.structures import DNS_RECORD, DnsPropertyFactory, DNS_
 
 
 class MSLDAPClientConsole(aiocmd.PromptToolkitCmd):
+	# only used when commands call each other, e.g. do_ldapinfo(False)
+	HIDDEN_ARGS = ('to_print', 'show')
+
 	def __init__(self, url = None):
 		aiocmd.PromptToolkitCmd.__init__(self, ignore_sigint=False) #Setting this to false, since True doesnt work on windows...
 		self.conn_url = url
