@@ -3,7 +3,6 @@ import pytest
 
 from msldap.commons.factory import LDAPConnectionFactory
 
-from support.known_failures import known_failure
 
 pytestmark = pytest.mark.unit
 
@@ -26,7 +25,6 @@ def _offline_connection(url="ldap+ntlm-password://TEST\\victim:secret@10.0.0.2")
     return conn
 
 
-@known_failure("KF-0006")
 def test_get_extra_info_survives_auth_error():
     """When the auth layer raises, get_extra_info() should swallow it and
     return ``{'ntlm_data': None}`` -- not crash.

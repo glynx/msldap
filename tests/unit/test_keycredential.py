@@ -4,7 +4,6 @@ import struct
 import pytest
 
 from msldap.commons.keycredential import KeyCredential
-from support.known_failures import known_failure
 
 pytestmark = pytest.mark.unit
 
@@ -56,7 +55,6 @@ class TestPfxRoundTrip:
         assert isinstance(data, (bytes, bytearray))
         assert len(data) > 0
 
-    @known_failure("KF-0003")
     def test_pfx_data_import_roundtrip(self, keycred):
         data = keycred.to_pfx_data("Passw0rd!")
         loaded = KeyCredential.from_pfx_data(data, "Passw0rd!")

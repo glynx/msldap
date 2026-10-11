@@ -108,7 +108,7 @@ pytest tests --run-live
 ### Multiple targets (whole-lab tests)
 
 Some tests need more than the primary DC: the **forest root** (its Configuration
-partition holds the ADCS/PKI objects — see `KF-0007`), a **second forest** for
+partition holds the ADCS/PKI objects), a **second forest** for
 cross-forest trust/SID resolution, and the **Global Catalog**. Declare the other
 DCs under `extra_targets` in the profile (they reuse the same account by
 default):
@@ -135,18 +135,4 @@ against a single DC.
 is asserted with a **strict** `xfail`, so if a bug gets fixed its test starts
 XPASSing and the suite fails — a reminder to retire the registry entry.
 
-Current entries (see the file for full details):
-
-| ID | Area | One-liner |
-|----|------|-----------|
-| `KF-0001` | `protocol.typeconversion.int2timedelta` | INT64 "(never)" sentinel becomes a bogus timedelta instead of `timedelta.max`. |
-| `KF-0002` | `protocol.typeconversion.multi_sd` | Decode path passes a generator into `single_sd()` → `TypeError`. |
-| `KF-0003` | `commons.keycredential.KeyCredential.from_pfx_data` | Reconstruct from PFX crashes in the constructor (`struct.error`). |
-| `KF-0004` | `commons.ldif.MSLDAPLdiff.parse_entry` | Base64 (`attr:: …`) values are never detected/decoded. |
-| `KF-0005` | `commons.ldif.MSLDAPLdiff.build_index` | `UnboundLocalError` on the first `dn:` line — LDIF parsing is dead. |
-| `KF-0006` | `connection.MSLDAPClientConnection.get_extra_info` | Error handler calls `traceback.print_exc()` without importing `traceback` → `NameError` masks the real error (breaks `simple`/`plain`/`anonymous` `test_connection`). |
-| `KF-0007` | `client.MSLDAPClient.list_certificate_templates` (& sibling ADCS/CA enumerators) | Build the search base from `defaultNamingContext` instead of the forest-wide `configurationNamingContext`; on a child-domain DC this raises `noSuchObject`. |
-
-`KF-0006` has a deterministic offline `xfail` in `tests/unit/test_connection_offline.py`.
-`KF-0007` is environment-dependent (only reproduces from a non-root DC), so the
-two live ADCS tests skip with a clear `KF-0007` message rather than failing.
+There are currently no open entries. KF-0001 .. KF-0007 have been fixed and retired.

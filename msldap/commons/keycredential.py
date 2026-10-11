@@ -173,7 +173,8 @@ class KeyCredential:
     def from_pfx_data(pfx_data, password):
         from cryptography.hazmat.primitives.serialization.pkcs12 import load_key_and_certificates
         key, cert, cas = load_key_and_certificates(pfx_data, password.encode())
-        return KeyCredential(cert, key, None, None)
+        # deviceId and timestamp are not part of the PFX, generate fresh ones
+        return KeyCredential(cert, key, getDeviceId(), getTicksNow())
 
     def to_pem(self, path_to_file):
         if len(os.path.dirname(path_to_file)) != 0:

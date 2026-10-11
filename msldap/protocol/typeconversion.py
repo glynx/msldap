@@ -47,7 +47,7 @@ def bytes2timedelta(x, encode = False):
 def int2timedelta(x, encode = False):
 	if encode is False:
 		x = int(x[0])
-		if x == '-9223372036854775808':
+		if x == -9223372036854775808:
 			return datetime.timedelta.max
 		return datetime.timedelta(microseconds=(x / 10.))
 	raise NotImplementedError()
@@ -245,7 +245,7 @@ def multi_bool(x, encode=False):
 
 def multi_sd(x, encode=False):
 	if encode is False:
-		return [single_sd([r] for r in x)]
+		return [single_sd([r]) for r in x]
 	if isinstance(x, list) is False:
 		x = [x]
 	return [single_sd(r)[0] for r in x]

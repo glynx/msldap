@@ -23,7 +23,7 @@ from msldap import logger
 from msldap.commons.common import MSLDAPClientStatus
 from msldap.commons.exceptions import LDAPSearchException
 from msldap.commons.target import MSLDAPTarget
-from msldap.commons.utils import KNOWN_SIDS
+from msldap.commons.utils import KNOWN_SIDS, KNOWN_DOMAIN_RIDS
 from msldap.connection import MSLDAPClientConnection
 from msldap.ldap_objects import *
 from msldap.protocol.constants import ALL_ATTRIBUTES, BASE, LEVEL
@@ -67,12 +67,14 @@ class MSLDAPClient:
 
 		self._tree = None
 		self._ldapinfo = None
+		self._serverinfo = None
 		self._con = connection
 		self.__keepalive_task = None
 		self.keepalive_period = 10
 		self.disconnected_evt = None
 		self._sid_cache = {} #SID -> (domain, user)
 		self._domainsid_cache = {} # SID -> domain
+		self._trusted_domainsids_loaded = False
 		self.domainname = None
 		self.domainsid = None
 		
@@ -213,15 +215,15 @@ class MSLDAPClient:
 
 		"""
 		logger.debug('Paged search, filter: %s attributes: %s' % (query, ','.join(attributes)))
-		if self._con.status != MSLDAPClientStatus.RUNNING:
-			if self._con.status == MSLDAPClientStatus.ERROR:
-				print('There was an error in the connection!')
-				return
+		if self._con.status == MSLDAPClientStatus.ERROR:
+			yield None, Exception('There was an error in the connection!')
+			return
 
 		if tree is None:
 			tree = self._tree
 		if tree is None:
-			raise Exception('BIND first!')
+			yield None, Exception('BIND first!')
+			return
 		t = []
 		for x in attributes:
 			t.append(x.encode())
@@ -1479,10 +1481,18 @@ class MSLDAPClient:
 		except Exception as e:
 			return False, e
 
+	def _get_configuration_nc(self) -> str:
+		"""
+		Returns the forest-wide Configuration NC. This is not necessarily below the domain DN (e.g. on child domains).
+		"""
+		if self._serverinfo is not None and self._serverinfo.get('configurationNamingContext') is not None:
+			return self._serverinfo['configurationNamingContext']
+		return 'CN=Configuration,%s' % self._tree
+
 	async def list_root_cas(self):
 		try:
 			ldap_filter = "(objectClass=certificationAuthority)"
-			tree = "CN=Certification Authorities,CN=Public Key Services,CN=Services,CN=Configuration,%s" % self._ldapinfo.distinguishedName
+			tree = "CN=Certification Authorities,CN=Public Key Services,CN=Services,%s" % self._get_configuration_nc()
 			async for entry, err in self.pagedsearch(ldap_filter, attributes = MSADCA_ATTRS, tree = tree):
 				if err is not None:
 					yield None, err
@@ -1496,7 +1506,7 @@ class MSLDAPClient:
 	async def list_ntcas(self):
 		try:
 			ldap_filter = "(objectClass=certificationAuthority)"
-			tree = "CN=NTAuthCertificates,CN=Public Key Services,CN=Services,CN=Configuration,%s" % self._ldapinfo.distinguishedName
+			tree = "CN=NTAuthCertificates,CN=Public Key Services,CN=Services,%s" % self._get_configuration_nc()
 			async for entry, err in self.pagedsearch(ldap_filter, attributes = MSADCA_ATTRS, tree = tree):
 				if err is not None:
 					yield None, err
@@ -1510,7 +1520,7 @@ class MSLDAPClient:
 	async def list_aiacas(self):
 		try:
 			ldap_filter = "(objectClass=certificationAuthority)"
-			tree = "CN=AIA,CN=Public Key Services,CN=Services,CN=Configuration,%s" % self._ldapinfo.distinguishedName
+			tree = "CN=AIA,CN=Public Key Services,CN=Services,%s" % self._get_configuration_nc()
 			async for entry, err in self.pagedsearch(ldap_filter, attributes = MSADCA_ATTRS, tree = tree):
 				if err is not None:
 					yield None, err
@@ -1524,7 +1534,7 @@ class MSLDAPClient:
 	async def list_enrollment_services(self):
 		try:
 			ldap_filter = "(objectCategory=pKIEnrollmentService)"
-			tree = "CN=Configuration,%s" % self._ldapinfo.distinguishedName
+			tree = self._get_configuration_nc()
 
 			async for entry, err in self.pagedsearch(ldap_filter, attributes = MSADEnrollmentService_ATTRS, tree = tree):
 				if err is not None:
@@ -1544,7 +1554,7 @@ class MSLDAPClient:
 			ldap_filter = "(objectCategory=pKICertificateTemplate)"
 			if name is not None:
 				ldap_filter = "(&(objectCategory=pKICertificateTemplate)(name=%s))" % name
-			tree = "CN=Configuration,%s" % self._ldapinfo.distinguishedName
+			tree = self._get_configuration_nc()
 
 			async for entry, err in self.pagedsearch(ldap_filter, attributes = MSADCertificateTemplate_ATTRS, controls=controls, tree = tree):
 				if err is not None:
@@ -1665,6 +1675,20 @@ class MSLDAPClient:
 		except Exception as e:
 			return None, e
 	
+	async def _load_trusted_domain_sids(self):
+		"""Adds the domain SIDs of all trusted domains to the domain SID cache (once per connection)"""
+		if self._trusted_domainsids_loaded is True:
+			return
+		self._trusted_domainsids_loaded = True
+		async for trust, err in self.get_all_trusts():
+			if err is not None:
+				logger.debug('Failed to load trusted domain SIDs: %s' % err)
+				return
+			if trust.securityIdentifier is None:
+				continue
+			name = trust.flatName or trust.name
+			self._domainsid_cache.setdefault(str(trust.securityIdentifier).upper(), name)
+
 	async def resolv_sid(self, sid:SID or str, use_cache:bool = True):
 		"""Performs a SID lookup for object and returns the domain name and the samaccountname"""
 		try:
@@ -1673,21 +1697,33 @@ class MSLDAPClient:
 				return "BUILTIN", KNOWN_SIDS[sid], None
 			domain = None
 			username = None
-			domainsid = sid.rsplit('-',1)[0]
-			if domainsid not in self._domainsid_cache:
-				logger.debug('Domain SID "%s" was not found! ' % domainsid)
-				return '???', '???', None
-			domain = self._domainsid_cache[domainsid]
+			domainsid, rid = sid.rsplit('-',1)
+			if domainsid == 'S-1-5-32':
+				# builtin aliases live in CN=Builtin of every domain
+				domain = 'BUILTIN'
+			else:
+				if domainsid not in self._domainsid_cache:
+					await self._load_trusted_domain_sids()
+				if domainsid not in self._domainsid_cache:
+					logger.debug('Domain SID "%s" was not found! ' % domainsid)
+					return '???', '???', None
+				domain = self._domainsid_cache[domainsid]
+
 			if sid in self._sid_cache:
 				username = self._sid_cache[sid]
 			
 			else:
-				ldap_filter = r'(objectSid=%s)' % sid
-				async for entry, err in self.pagedsearch(ldap_filter, attributes = ['sAMAccountName']):
-					if err is not None:
-						return None, None, err
-					username = entry['attributes'].get('sAMAccountName')
+				if domain == 'BUILTIN' or domainsid == str(self.domainsid).upper():
+					ldap_filter = r'(objectSid=%s)' % sid
+					async for entry, err in self.pagedsearch(ldap_filter, attributes = ['sAMAccountName']):
+						if err is not None:
+							return None, None, err
+						username = entry['attributes'].get('sAMAccountName')
 				
+				if username is None and rid.isdigit():
+					# foreign domains can't be searched via this connection, fall back to well-known RIDs
+					username = KNOWN_DOMAIN_RIDS.get(int(rid))
+
 				if username is None:
 					return domain, '???', None
 					#raise Exception('User not found! %s' % sid)
@@ -1840,15 +1876,24 @@ class MSLDAPClient:
 		except Exception as e:
 			yield None, e
    
+	def _get_dns_roots(self) -> List[str]:
+		"""
+		Returns the containers DNS zones can be stored in. ForestDnsZones lives under the forest root, not the domain.
+		"""
+		forestroot = self._tree
+		if self._serverinfo is not None and self._serverinfo.get('rootDomainNamingContext') is not None:
+			forestroot = self._serverinfo['rootDomainNamingContext']
+		return [
+			'CN=MicrosoftDNS,DC=DomainDnsZones,%s' % self._tree,
+			'CN=MicrosoftDNS,DC=ForestDnsZones,%s' % forestroot,
+			'CN=MicrosoftDNS,CN=System,%s' % self._tree,
+		]
+
 	async def dnslistzones(self):
 		"""Lists all DNS zones in the forest"""
 
 		# NOTE: DNS Zones can only be stored here
-		dnsroots = [
-			'CN=MicrosoftDNS,DC=DomainDnsZones,%s' % self._tree,
-			'CN=MicrosoftDNS,DC=ForestDnsZones,%s' % self._tree,
-			'CN=MicrosoftDNS,CN=System,%s' % self._tree,
-		]
+		dnsroots = self._get_dns_roots()
 
 		# NOTE: Service catalogs which doesn't contain DNS Zones
 		blacklist = [
@@ -1865,6 +1910,9 @@ class MSLDAPClient:
 
 				async for entry, err in self.pagedsearch(query, attributes=['dc', 'dNSProperty'], tree=dnsroot):
 					if err is not None:
+						if isinstance(err, LDAPSearchException) and err.resultname == 'noSuchObject':
+							# not every container exists (e.g. no legacy zones), check the others
+							break
 						raise err
 
 					zone = entry['attributes']['dc']
@@ -1880,11 +1928,7 @@ class MSLDAPClient:
 	async def dnsentries(self, zone = None, with_tombstones = False):
 		"""Lists all DNS entries in the forest"""
 
-		dnsroots = [
-			'CN=MicrosoftDNS,DC=DomainDnsZones,%s' % self._tree,
-			'CN=MicrosoftDNS,DC=ForestDnsZones,%s' % self._tree,
-			'CN=MicrosoftDNS,CN=System,%s' % self._tree,
-		]
+		dnsroots = self._get_dns_roots()
 
 		async for entry, _, err in self.dnslistzones():
 			if err is not None:

@@ -6,6 +6,9 @@ from winacl.dtyp.ace import ACEType, ACE_OBJECT_PRESENCE, ACCESS_MASK, ADS_ACCES
 EX_RIGHT_CERTIFICATE_ENROLLMENT = "0e10c968-78fb-11d2-90d4-00c04f79dc55"
 EX_RIGHT_CERTIFICATE_AUTOENROLLMENT = "a05b8cc2-17bc-4802-a710-e7c15ab866a2"
 
+# Everyone, Authenticated Users: part of every logon token but not of the tokenGroups attribute
+IMPLICIT_TOKEN_SIDS = {"S-1-1-0", "S-1-5-11"}
+
 
 class CertificateNameFlag(enum.IntFlag):
 	ENROLLEE_SUPPLIES_SUBJECT = 0x00000001
@@ -330,7 +333,7 @@ class MSADCertificateTemplate:
 	def check_dangerous_permissions(self, tokengroups = None):
 		issues = []
 		if tokengroups is None or len(tokengroups) == 0:
-			if self.isLowPrivSid(str(self.nTSecurityDescriptor.Owner)) is True:
+			if self.nTSecurityDescriptor is not None and self.isLowPrivSid(str(self.nTSecurityDescriptor.Owner)) is True:
 				issues.append('Owner is low priv user')
 				
 			if any(self.isLowPrivSid(str(sid)) for sid in self.fullcontrol_sids) is True:
@@ -358,7 +361,7 @@ class MSADCertificateTemplate:
 			if len(self.fullcontrol_sids.intersection(set(tokengroups))) > 0:
 				issues.append('Current user has full control')
 			
-			if str(self.nTSecurityDescriptor.Owner) in tokengroups:
+			if self.nTSecurityDescriptor is not None and str(self.nTSecurityDescriptor.Owner) in tokengroups:
 				issues.append('The current user can control the owner -or is the owner-')
 		
 		return issues
@@ -367,6 +370,9 @@ class MSADCertificateTemplate:
 		vulns = {}
 		if tokengroups is None:
 			tokengroups = []
+		if len(tokengroups) > 0:
+			# tokenGroups doesn't contain these, but every logon token does
+			tokengroups = list(set(tokengroups) | IMPLICIT_TOKEN_SIDS)
 
 		user_can_enroll = False
 		if len(set(self.enroll_sids).intersection(set(tokengroups))) > 0:
@@ -447,7 +453,7 @@ class MSADCertificateTemplate:
 				hostname, service = es.split('\\', 1)
 				res.append((hostname, service))
 			else:
-				res.append((None, service))
+				res.append((None, es))
 		return res
 
 

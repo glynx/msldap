@@ -44,7 +44,8 @@ from msldap.ldap_objects import (MSADGPO_ATTRS, MSADOU_ATTRS,
 from msldap.ldap_objects.adcertificatetemplate import (
     EX_RIGHT_CERTIFICATE_ENROLLMENT, CertificateNameFlag,
     MSADCertificateTemplate)
-from msldap.wintypes.asn1.sdflagsrequest import SDFlagsRequest
+from msldap.protocol.constants import BASE, LEVEL, SUBTREE
+from msldap.wintypes.asn1.sdflagsrequest import SDFlagsRequest, SDFlagsRequestValue
 from msldap.wintypes.dnsp.structures import DNS_RECORD, DnsPropertyFactory, DNS_RECORD_TYPE
 
 
@@ -791,17 +792,37 @@ class MSLDAPClientConsole(aiocmd.PromptToolkitCmd):
 		print('Modify OK!')
 		return True
 
-	async def do_query(self, query, attributes = "-"):
-		"""Performs a raw LDAP query against the server. Secondary parameter is the requested attributes SEPARATED WITH COMMA (,)"""
+	@staticmethod
+	def _query_value_str(val):
+		if isinstance(val, SECURITY_DESCRIPTOR):
+			return val.to_sddl()
+		if isinstance(val, bytes):
+			return val.hex()
+		return str(val)
+
+	async def do_query(self, query, attributes = '*', tree = None, scope = 'sub'):
+		"""Performs a raw LDAP query. Params: filter [attributes SEPARATED WITH COMMA (,), default: *] [base DN, default: domain root] [scope: base|one|sub, default: sub]"""
 		try:
 			await self.do_ldapinfo(False)
-			if attributes is None:
+			if attributes is None or attributes == '':
 				attributes = '*'
-			if attributes.find(','):
-				attributes = attributes.split(',')
+			attributes = [a.strip() for a in attributes.split(',') if a.strip() != '']
+			if tree == '' or tree == '-':
+				tree = None
+			scopes = {'base': BASE, 'one': LEVEL, 'sub': SUBTREE, '0': BASE, '1': LEVEL, '2': SUBTREE}
+			if str(scope).lower() not in scopes:
+				raise Exception('Unknown scope "%s", use base, one or sub' % scope)
+			search_scope = scopes[str(scope).lower()]
+
+			controls = None
+			if any(a.lower() == 'ntsecuritydescriptor' for a in attributes):
+				# without SD flags non-admin users don't get the SD at all (SACL requires SeSecurityPrivilege)
+				flags = SDFlagsRequest.DACL_SECURITY_INFORMATION|SDFlagsRequest.GROUP_SECURITY_INFORMATION|SDFlagsRequest.OWNER_SECURITY_INFORMATION
+				controls = [('1.2.840.113556.1.4.801', True, SDFlagsRequestValue({'Flags' : flags}).dump())]
+
 			logging.debug('Query: %s' % (query))
 			logging.debug('Attributes: %s' % (attributes))
-			async for entry, err in self.connection.pagedsearch(query, attributes):
+			async for entry, err in self.connection.pagedsearch(query, attributes, controls = controls, tree = tree, search_scope = search_scope):
 				if err is not None:
 					raise err
 				print('DN: %s' % entry['objectName'])
@@ -810,20 +831,15 @@ class MSLDAPClientConsole(aiocmd.PromptToolkitCmd):
 					if isinstance(attr_value, list):
 						print('  %s:' % attr_name)
 						for val in attr_value:
-							if isinstance(val, SECURITY_DESCRIPTOR):
-								print('    - %s' % val.to_sddl())
-							elif isinstance(val, bytes):
-								print('    - %s' % val.hex())
-							else:
-								print('    - %s' % val)
+							print('    - %s' % self._query_value_str(val))
 					else:
-						if isinstance(attr_value, SECURITY_DESCRIPTOR):
+						if attr_name.lower() == 'ntsecuritydescriptor' and isinstance(attr_value, bytes):
+							# msldap returns the SD as raw bytes, show it as SDDL and hex
+							print('  %s: %s' % (attr_name, SECURITY_DESCRIPTOR.from_bytes(attr_value).to_sddl()))
+						elif isinstance(attr_value, SECURITY_DESCRIPTOR):
 							print('  %s: %s' % (attr_name, attr_value.to_sddl()))
-							print('  %s: %s' % (attr_name, attr_value.to_bytes().hex()))
-						elif isinstance(attr_value, bytes):
-							print('  %s: %s' % (attr_name, attr_value.hex()))
-						else:
-							print('  %s: %s' % (attr_name, attr_value))
+							attr_value = attr_value.to_bytes()
+						print('  %s: %s' % (attr_name, self._query_value_str(attr_value)))
 				print('---')
 			return True
 		except:
@@ -1643,6 +1659,8 @@ class MSLDAPClientConsole(aiocmd.PromptToolkitCmd):
 					}
 					results.append(entry)
 
+			if len(results) == 0:
+				print('No vulnerable templates found for %s (checked %d templates)' % (username or 'the current user', len(templates)))
 			return results
 		except:
 			traceback.print_exc()
