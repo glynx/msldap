@@ -33,6 +33,8 @@ class PromptToolkitCmd:
     prompt = "$ "
     doc_header = "Documented commands:"
     aliases = {"?": "help", "exit": "quit"}
+    # names of optional command parameters that are hidden from the usage (meant for programmatic calls)
+    HIDDEN_ARGS = ()
 
     def __init__(self, ignore_sigint=True):
         self.completer = self._make_completer()
@@ -85,11 +87,14 @@ class PromptToolkitCmd:
         return bindings
 
     async def _run_single_command(self, command, args):
+        if command != "help" and args in (["-h"], ["--help"]):
+            return self.do_help(command)
         command_real_args, command_real_kwargs = self._get_command_args(command)
         if len(args) < len(command_real_args) or len(args) > (len(command_real_args)
                                                               + len(command_real_kwargs)):
             print("Bad command args. Usage: %s" % self._get_command_usage(command, command_real_args,
                                                                           command_real_kwargs))
+            print("See 'help %s' for details." % command)
             return
 
         try:
@@ -128,27 +133,43 @@ class PromptToolkitCmd:
         return args, kwargs
 
     def _get_command_usage(self, command, args, kwargs):
-        return ("%s %s %s" % (command,
-                              " ".join("<%s>" % arg for arg in args),
-                              " ".join("[%s]" % kwarg for kwarg in kwargs),
-                              )).strip()
+        # parameters only meant for programmatic calls are not shown
+        kwargs = [kwarg for kwarg in kwargs if kwarg.name not in self.HIDDEN_ARGS]
+        return " ".join(part for part in (command,
+                                          " ".join("<%s>" % arg.name for arg in args),
+                                          " ".join("[%s]" % kwarg.name for kwarg in kwargs),
+                                          ) if part)
 
     @property
     def command_list(self):
         return [attr[len(self.ATTR_START):]
                 for attr in dir(self) if attr.startswith(self.ATTR_START)] + list(self.aliases.keys())
 
-    def do_help(self):
+    def do_help(self, command=None):
+        """Lists all commands, or shows the usage and full description of a single command"""
+        get_usage = lambda command: self._get_command_usage(command, *self._get_command_args(command))
+        if command is not None:
+            if command not in self.command_list:
+                print("Unknown command: %s" % command)
+                return False
+            print("Usage: %s" % get_usage(command))
+            command_doc = inspect.getdoc(self._get_command(command))
+            if command_doc:
+                print()
+                print(command_doc)
+            return True
+
         print()
         print(self.doc_header)
         print("=" * len(self.doc_header))
         print()
 
-        get_usage = lambda command: self._get_command_usage(command, *self._get_command_args(command))
         max_usage_len = max([len(get_usage(command)) for command in self.command_list])
         for command in sorted(self.command_list):
-            command_doc = self._get_command(command).__doc__
-            print(("%-" + str(max_usage_len + 2) + "s%s") % (get_usage(command), command_doc or ""))
+            command_doc = inspect.getdoc(self._get_command(command)) or ""
+            print(("%-" + str(max_usage_len + 2) + "s%s") % (get_usage(command), command_doc.split("\n")[0]))
+        print()
+        print("Use 'help <command>' or '<command> -h' for details on a command.")
 
     def do_quit(self):
         """Exit the prompt"""
