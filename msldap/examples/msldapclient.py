@@ -1659,6 +1659,8 @@ class MSLDAPClientConsole(aiocmd.PromptToolkitCmd):
 					}
 					results.append(entry)
 
+			if len(results) == 0:
+				print('No vulnerable templates found for %s (checked %d templates)' % (username or 'the current user', len(templates)))
 			return results
 		except:
 			traceback.print_exc()
