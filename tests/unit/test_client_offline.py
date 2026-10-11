@@ -135,3 +135,21 @@ class TestResolvSid:
     async def test_own_domain_uses_ldap(self):
         client = self._client({self.OWN + "-1118": "jon.snow"})
         assert await client.resolv_sid(self.OWN + "-1118") == ("north", "jon.snow", None)
+
+
+class TestWhoamiFull:
+    async def test_foreign_user_is_reported(self):
+        # bound via a trust: the account does not exist in the connected domain
+        client = _client()
+
+        async def fake_whoami():
+            return "u:NORTH\\jon.snow", None
+
+        async def fake_get_user(name):
+            return None, None
+
+        client.whoami = fake_whoami
+        client.get_user = fake_get_user
+        res, err = await client.whoamifull()
+        assert err is not None and "not found" in str(err)
+        assert res["tokengroups"] == []

@@ -1755,6 +1755,9 @@ class MSLDAPClient:
 				user, err = await self.get_user(samaccountname)
 				if err is not None:
 					raise err
+				if user is None:
+					# e.g. authenticated via a trust, the account lives in another domain
+					raise Exception('User %s\\%s not found in the domain of the connected server' % (domain, samaccountname))
 				result['sid'] = str(user.objectSid)
 				result['tokengroups'].append(str(user.objectSid))
 				result['groups'] = {}
@@ -1769,8 +1772,8 @@ class MSLDAPClient:
 					result['groups'][group_sid] = (domain, username)
 			
 			return result, None
-		except:
-			return result, None
+		except Exception as e:
+			return result, e
 
 	async def get_unconstrained_machines(self):
 		ldap_filter = r'(&(sAMAccountType=805306369)(!(userAccountControl:1.2.840.113556.1.4.803:=8192))(userAccountControl:1.2.840.113556.1.4.803:=524288))'
