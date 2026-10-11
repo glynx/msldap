@@ -25,6 +25,7 @@ class MSLDAPLdiff:
         ldiff = MSLDAPLdiff()
         ldiff.filename = filename
         await ldiff.parse()
+        return ldiff
 
     async def open_or_handle(self):
         if self.filehandle is None:
@@ -33,6 +34,8 @@ class MSLDAPLdiff:
     
     async def build_index(self):
         print('[+] Building index...')
+        current_dn = None
+        start_pos = 0
         with open(self.filename, 'r', encoding='utf-8') as f:
             while True:
                 pos = f.tell()  # Current position in the file
@@ -59,14 +62,14 @@ class MSLDAPLdiff:
                 
                 if line.startswith('sAMAccountType: '):
                     objectclass = line.strip().upper()
-                    if objectclass not in self.objectclass_index:
-                        self.objectclass_index[objectclass] = []
+                    if objectclass not in self.samaccounttype_index:
+                        self.samaccounttype_index[objectclass] = []
                     self.samaccounttype_index[objectclass].append(current_dn)
                 
                 if line.startswith('objectType: '):
                     objectclass = line.strip().upper()
-                    if objectclass not in self.objectclass_index:
-                        self.objectclass_index[objectclass] = []
+                    if objectclass not in self.objecttype_index:
+                        self.objecttype_index[objectclass] = []
                     self.objecttype_index[objectclass].append(current_dn)
 
                 elif not line.strip() and current_dn is not None:
@@ -99,6 +102,8 @@ class MSLDAPLdiff:
         entry = self.parse_entry(raw_entry)
         if len(self.dncache) > self.max_cache_size:
             self.dncache.popitem()
+        self.dncache[dn] = entry
+        return entry
 
     def parse_entry(self, raw_entry:List[str]):
         ed = {}
@@ -111,10 +116,11 @@ class MSLDAPLdiff:
 
             key, value = line.split(':', 1)
             key = key.strip()
-            value = value.strip()
-
-            if line.split(':', 1)[0].endswith('::'):
-                value = base64.b64decode(value)
+            if value.startswith(':'):
+                # 'attr:: <base64>' (RFC 2849)
+                value = base64.b64decode(value[1:].strip())
+            else:
+                value = value.strip()
             
             if key not in ed:
                 ed[key] = []

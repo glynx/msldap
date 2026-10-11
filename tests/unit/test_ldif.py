@@ -9,7 +9,6 @@ import tempfile
 import pytest
 
 from msldap.commons.ldif import MSLDAPLdiff, LDIFIdx
-from support.known_failures import known_failure
 
 pytestmark = pytest.mark.unit
 
@@ -41,7 +40,6 @@ class TestParseEntry:
         entry = ldiff.parse_entry(raw)
         assert entry["cn"] == ["value"]
 
-    @known_failure("KF-0004")
     def test_base64_value_is_decoded(self):
         ldiff = MSLDAPLdiff()
         # 'aGVsbG8=' is base64 for b'hello'; LDIF uses '::' for base64 values
@@ -51,7 +49,6 @@ class TestParseEntry:
 
 
 class TestBuildIndex:
-    @known_failure("KF-0005")
     def test_build_index_on_simple_file(self):
         data = "dn: CN=admin,DC=test,DC=corp\nsAMAccountName: admin\nobjectClass: user\n\n"
         fd, path = tempfile.mkstemp(suffix=".ldif")
