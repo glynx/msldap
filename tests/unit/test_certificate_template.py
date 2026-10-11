@@ -37,3 +37,14 @@ def test_enrollment_services_without_hostname():
     t = MSADCertificateTemplate()
     t.enroll_services = ["host.test.corp\\TEST-CA", "TEST-CA"]
     assert t.enrollment_services == [("host.test.corp", "TEST-CA"), (None, "TEST-CA")]
+
+
+def test_flag_names():
+    from msldap.ldap_objects.adcertificatetemplate import EnrollmentFlag, flag_names
+    # value from the KerberosAuthentication template in GOAD
+    assert flag_names(CertificateNameFlag, 138412032) == "SUBJECT_ALT_REQUIRE_DOMAIN_DNS, SUBJECT_ALT_REQUIRE_DNS"
+    assert flag_names(CertificateNameFlag, 1) == "ENROLLEE_SUPPLIES_SUBJECT"
+    assert flag_names(EnrollmentFlag, 0) == "NONE"
+    assert flag_names(EnrollmentFlag, 0x20 | 0x100000) == "AUTO_ENROLLMENT, 0x100000"
+    # msPKI-Certificate-Name-Flag is stored signed, high bit set -> negative
+    assert flag_names(CertificateNameFlag, -2147483648) == "SUBJECT_REQUIRE_DIRECTORY_PATH"
