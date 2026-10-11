@@ -209,3 +209,20 @@ class TestTreePlot:
         tree = await client.get_tree_plot("DC=test,DC=corp", level=2)
         assert tree["DC=test,DC=corp"]["CN=A,DC=test,DC=corp"] == {"CN=A,DC=test,DC=corp": {"CN=A1,CN=A,DC=test,DC=corp": {}}}
         assert con.searches == ["DC=test,DC=corp", "CN=A,DC=test,DC=corp", "CN=B,DC=test,DC=corp"]
+
+
+class TestDomainName:
+    async def test_reuses_the_domain_object_from_connect(self):
+        class _Info:
+            distinguishedName = "DC=north,DC=sevenkingdoms,DC=local"
+
+        client = _client()
+        client._ldapinfo = _Info()
+
+        async def no_search(*args, **kwargs):
+            raise AssertionError("the domain object must not be fetched again")
+
+        client.get_ad_info = no_search
+        name, err = await client.get_domain_name()
+        assert err is None
+        assert name == "north.sevenkingdoms.local"

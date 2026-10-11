@@ -179,9 +179,12 @@ class MSLDAPClient:
 	async def get_domain_name(self):
 		if self.domainname is not None:
 			return self.domainname, None
-		self._ldapinfo, err = await self.get_ad_info()
-		if err is not None:
-			return None, err
+		err = None
+		if self._ldapinfo is None:
+			# connect() has usually fetched the domain object already
+			self._ldapinfo, err = await self.get_ad_info()
+			if err is not None:
+				return None, err
 		#self.domainname = self._ldapinfo.name # This was the old version, now we use the DN
 		dc_pattern = re.compile(r"DC=([a-zA-Z0-9-]+)")
 		dc_components = dc_pattern.findall(self._ldapinfo.distinguishedName)
