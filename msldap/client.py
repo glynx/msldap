@@ -214,15 +214,15 @@ class MSLDAPClient:
 
 		"""
 		logger.debug('Paged search, filter: %s attributes: %s' % (query, ','.join(attributes)))
-		if self._con.status != MSLDAPClientStatus.RUNNING:
-			if self._con.status == MSLDAPClientStatus.ERROR:
-				print('There was an error in the connection!')
-				return
+		if self._con.status == MSLDAPClientStatus.ERROR:
+			yield None, Exception('There was an error in the connection!')
+			return
 
 		if tree is None:
 			tree = self._tree
 		if tree is None:
-			raise Exception('BIND first!')
+			yield None, Exception('BIND first!')
+			return
 		t = []
 		for x in attributes:
 			t.append(x.encode())
