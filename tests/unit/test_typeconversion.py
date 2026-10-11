@@ -9,7 +9,6 @@ from winacl.dtyp.sid import SID
 
 from msldap.protocol import typeconversion as tc
 from support.builders import make_raw_attributes
-from support.known_failures import known_failure
 
 pytestmark = pytest.mark.unit
 
@@ -136,12 +135,10 @@ class TestEncodeChanges:
 
 
 class TestConfirmedDefects:
-    @known_failure("KF-0001")
     def test_int2timedelta_never_sentinel(self):
         # -2**63 should map to timedelta.max
         assert tc.int2timedelta([-9223372036854775808]) == datetime.timedelta.max
 
-    @known_failure("KF-0002")
     def test_multi_sd_decode(self):
         # a minimal self-relative SD blob; the decode path should not raise
         blank_sd = b"\x01\x00\x04\x80\x14\x00\x00\x00\x24\x00\x00\x00\x00\x00\x00\x00\x30\x00\x00\x00"
