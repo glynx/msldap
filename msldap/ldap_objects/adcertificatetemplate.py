@@ -56,6 +56,22 @@ class PrivateKeyFlag(enum.IntFlag):
 	ATTEST_PREFERRED = 0x000001000
 	HELLO_LOGON_KEY = 0x00200000
 
+def flag_names(flagtype, value) -> str:
+	"""
+	Returns the names of all bits set in value, e.g. 'ENROLLEE_SUPPLIES_SUBJECT, SUBJECT_ALT_REQUIRE_UPN'.
+	Unknown bits are appended as hex. (str() of an IntFlag only returns the number since Python 3.11)
+	"""
+	value = int(value) & 0xFFFFFFFF
+	names = []
+	known = 0
+	for member in flagtype:
+		if member.value != 0 and value & member.value == member.value:
+			names.append(member.name)
+			known |= member.value
+	if value & ~known:
+		names.append(hex(value & ~known))
+	return ', '.join(names) if names else 'NONE'
+
 EKU_CLIENT_AUTHENTICATION_OID = "1.3.6.1.5.5.7.3.2"
 EKU_PKINIT_CLIENT_AUTHENTICATION_OID = "1.3.6.1.5.2.3.4"
 EKU_SMART_CARD_LOGON_OID = "1.3.6.1.4.1.311.20.2.2"
@@ -485,19 +501,9 @@ class MSADCertificateTemplate:
 			t += "Vulnerabilities: %s\r\n" % ", ".join(self.vulns)
 		
 		if self.Certificate_Name_Flag is not None:
-			x = str(CertificateNameFlag(self.Certificate_Name_Flag)).split('.',1)
-			if len(x) >= 2:
-				x = x[1].replace('|',', ')
-			else:
-				x = str(self.Certificate_Name_Flag).replace('|',', ')
-			t += "msPKI-Certificate-Name-Flag: %s\r\n" % x
+			t += "msPKI-Certificate-Name-Flag: %s\r\n" % flag_names(CertificateNameFlag, self.Certificate_Name_Flag)
 		if self.Enrollment_Flag is not None:
-			x = str(EnrollmentFlag(self.Enrollment_Flag)).split('.',1)
-			if len(x) >= 2:
-				x = x[1].replace('|',', ')
-			else:
-				x = str(self.Enrollment_Flag).replace('|',', ')
-			t += "msPKI-Enrollment-Flag: %s\r\n" % x
+			t += "msPKI-Enrollment-Flag: %s\r\n" % flag_names(EnrollmentFlag, self.Enrollment_Flag)
 		if self.RA_Signature is not None:
 			t += "msPKI-RA-Signature: %s\r\n" % self.RA_Signature
 		if self.pKIExtendedKeyUsage is not None:
