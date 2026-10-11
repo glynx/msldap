@@ -77,3 +77,61 @@ class TestDnsZones:
         client.pagedsearch = fake_pagedsearch
         res = await _collect(client.dnslistzones())
         assert [(zone, err) for zone, _, err in res] == [("north.sevenkingdoms.local", None)]
+
+
+class TestResolvSid:
+    OWN = "S-1-5-21-2854713739-2693073368-2788288984"
+    ROOT = "S-1-5-21-1798895762-2647094234-2649376422"
+
+    def _client(self, lookups=None):
+        from winacl.dtyp.sid import SID
+        from msldap.ldap_objects.adtrust import MSADDomainTrust
+
+        client = _client()
+        client._tree = "DC=north,DC=sevenkingdoms,DC=local"
+        client.domainsid = self.OWN
+        client._domainsid_cache[self.OWN] = "north"
+        client.searched = []
+        lookups = lookups or {}
+
+        async def fake_pagedsearch(query, attributes, **kwargs):
+            client.searched.append(query)
+            sid = query[len("(objectSid="):-1]
+            if sid in lookups:
+                yield {"attributes": {"sAMAccountName": lookups[sid]}}, None
+
+        async def fake_trusts():
+            trust = MSADDomainTrust()
+            trust.flatName = "SEVENKINGDOMS"
+            trust.securityIdentifier = SID.from_string(self.ROOT)
+            yield trust, None
+
+        client.pagedsearch = fake_pagedsearch
+        client.get_all_trusts = fake_trusts
+        return client
+
+    async def test_trusted_domain_well_known_rid(self):
+        client = self._client()
+        assert await client.resolv_sid(self.ROOT + "-519") == ("SEVENKINGDOMS", "Enterprise Admins", None)
+        # foreign SIDs are not searched in the local partition
+        assert client.searched == []
+
+    async def test_trusted_domain_unknown_rid(self):
+        client = self._client()
+        assert await client.resolv_sid(self.ROOT + "-1234") == ("SEVENKINGDOMS", "???", None)
+
+    async def test_unknown_domain(self):
+        client = self._client()
+        assert await client.resolv_sid("S-1-5-21-1-2-3-512") == ("???", "???", None)
+
+    async def test_builtin_alias_from_table(self):
+        client = self._client()
+        assert await client.resolv_sid("S-1-5-32-555") == ("BUILTIN", "Remote Desktop Users", None)
+
+    async def test_builtin_alias_via_ldap(self):
+        client = self._client({"S-1-5-32-999": "Custom Alias"})
+        assert await client.resolv_sid("S-1-5-32-999") == ("BUILTIN", "Custom Alias", None)
+
+    async def test_own_domain_uses_ldap(self):
+        client = self._client({self.OWN + "-1118": "jon.snow"})
+        assert await client.resolv_sid(self.OWN + "-1118") == ("north", "jon.snow", None)

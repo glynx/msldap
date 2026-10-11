@@ -23,7 +23,7 @@ from msldap import logger
 from msldap.commons.common import MSLDAPClientStatus
 from msldap.commons.exceptions import LDAPSearchException
 from msldap.commons.target import MSLDAPTarget
-from msldap.commons.utils import KNOWN_SIDS
+from msldap.commons.utils import KNOWN_SIDS, KNOWN_DOMAIN_RIDS
 from msldap.connection import MSLDAPClientConnection
 from msldap.ldap_objects import *
 from msldap.protocol.constants import ALL_ATTRIBUTES, BASE, LEVEL
@@ -74,6 +74,7 @@ class MSLDAPClient:
 		self.disconnected_evt = None
 		self._sid_cache = {} #SID -> (domain, user)
 		self._domainsid_cache = {} # SID -> domain
+		self._trusted_domainsids_loaded = False
 		self.domainname = None
 		self.domainsid = None
 		
@@ -1674,6 +1675,20 @@ class MSLDAPClient:
 		except Exception as e:
 			return None, e
 	
+	async def _load_trusted_domain_sids(self):
+		"""Adds the domain SIDs of all trusted domains to the domain SID cache (once per connection)"""
+		if self._trusted_domainsids_loaded is True:
+			return
+		self._trusted_domainsids_loaded = True
+		async for trust, err in self.get_all_trusts():
+			if err is not None:
+				logger.debug('Failed to load trusted domain SIDs: %s' % err)
+				return
+			if trust.securityIdentifier is None:
+				continue
+			name = trust.flatName or trust.name
+			self._domainsid_cache.setdefault(str(trust.securityIdentifier).upper(), name)
+
 	async def resolv_sid(self, sid:SID or str, use_cache:bool = True):
 		"""Performs a SID lookup for object and returns the domain name and the samaccountname"""
 		try:
@@ -1682,21 +1697,33 @@ class MSLDAPClient:
 				return "BUILTIN", KNOWN_SIDS[sid], None
 			domain = None
 			username = None
-			domainsid = sid.rsplit('-',1)[0]
-			if domainsid not in self._domainsid_cache:
-				logger.debug('Domain SID "%s" was not found! ' % domainsid)
-				return '???', '???', None
-			domain = self._domainsid_cache[domainsid]
+			domainsid, rid = sid.rsplit('-',1)
+			if domainsid == 'S-1-5-32':
+				# builtin aliases live in CN=Builtin of every domain
+				domain = 'BUILTIN'
+			else:
+				if domainsid not in self._domainsid_cache:
+					await self._load_trusted_domain_sids()
+				if domainsid not in self._domainsid_cache:
+					logger.debug('Domain SID "%s" was not found! ' % domainsid)
+					return '???', '???', None
+				domain = self._domainsid_cache[domainsid]
+
 			if sid in self._sid_cache:
 				username = self._sid_cache[sid]
 			
 			else:
-				ldap_filter = r'(objectSid=%s)' % sid
-				async for entry, err in self.pagedsearch(ldap_filter, attributes = ['sAMAccountName']):
-					if err is not None:
-						return None, None, err
-					username = entry['attributes'].get('sAMAccountName')
+				if domain == 'BUILTIN' or domainsid == str(self.domainsid).upper():
+					ldap_filter = r'(objectSid=%s)' % sid
+					async for entry, err in self.pagedsearch(ldap_filter, attributes = ['sAMAccountName']):
+						if err is not None:
+							return None, None, err
+						username = entry['attributes'].get('sAMAccountName')
 				
+				if username is None and rid.isdigit():
+					# foreign domains can't be searched via this connection, fall back to well-known RIDs
+					username = KNOWN_DOMAIN_RIDS.get(int(rid))
+
 				if username is None:
 					return domain, '???', None
 					#raise Exception('User not found! %s' % sid)
