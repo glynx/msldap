@@ -43,3 +43,13 @@ def test_help_listing(console, capsys):
     out = capsys.readouterr().out
     assert "certtemplates [name]" in out
     assert "help <command>" in out
+
+
+def test_help_completes_commands(console):
+    from prompt_toolkit.document import Document
+    completer = console._completer_for_command("help")
+    words = {c.text for c in completer.get_completions(Document("cert"), None)}
+    assert {"certify", "certify2", "certtemplates"} <= words
+    all_words = {c.text for c in completer.get_completions(Document(""), None)}
+    assert "help" not in all_words and "?" not in all_words
+    assert "whoami" in all_words
