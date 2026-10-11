@@ -1849,15 +1849,24 @@ class MSLDAPClient:
 		except Exception as e:
 			yield None, e
    
+	def _get_dns_roots(self) -> List[str]:
+		"""
+		Returns the containers DNS zones can be stored in. ForestDnsZones lives under the forest root, not the domain.
+		"""
+		forestroot = self._tree
+		if self._serverinfo is not None and self._serverinfo.get('rootDomainNamingContext') is not None:
+			forestroot = self._serverinfo['rootDomainNamingContext']
+		return [
+			'CN=MicrosoftDNS,DC=DomainDnsZones,%s' % self._tree,
+			'CN=MicrosoftDNS,DC=ForestDnsZones,%s' % forestroot,
+			'CN=MicrosoftDNS,CN=System,%s' % self._tree,
+		]
+
 	async def dnslistzones(self):
 		"""Lists all DNS zones in the forest"""
 
 		# NOTE: DNS Zones can only be stored here
-		dnsroots = [
-			'CN=MicrosoftDNS,DC=DomainDnsZones,%s' % self._tree,
-			'CN=MicrosoftDNS,DC=ForestDnsZones,%s' % self._tree,
-			'CN=MicrosoftDNS,CN=System,%s' % self._tree,
-		]
+		dnsroots = self._get_dns_roots()
 
 		# NOTE: Service catalogs which doesn't contain DNS Zones
 		blacklist = [
@@ -1874,6 +1883,9 @@ class MSLDAPClient:
 
 				async for entry, err in self.pagedsearch(query, attributes=['dc', 'dNSProperty'], tree=dnsroot):
 					if err is not None:
+						if isinstance(err, LDAPSearchException) and err.resultname == 'noSuchObject':
+							# not every container exists (e.g. no legacy zones), check the others
+							break
 						raise err
 
 					zone = entry['attributes']['dc']
@@ -1889,11 +1901,7 @@ class MSLDAPClient:
 	async def dnsentries(self, zone = None, with_tombstones = False):
 		"""Lists all DNS entries in the forest"""
 
-		dnsroots = [
-			'CN=MicrosoftDNS,DC=DomainDnsZones,%s' % self._tree,
-			'CN=MicrosoftDNS,DC=ForestDnsZones,%s' % self._tree,
-			'CN=MicrosoftDNS,CN=System,%s' % self._tree,
-		]
+		dnsroots = self._get_dns_roots()
 
 		async for entry, _, err in self.dnslistzones():
 			if err is not None:

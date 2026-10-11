@@ -3,6 +3,7 @@ import pytest
 
 from msldap.client import MSLDAPClient
 from msldap.commons.common import MSLDAPClientStatus
+from msldap.commons.exceptions import LDAPSearchException
 
 
 pytestmark = pytest.mark.unit
@@ -50,3 +51,29 @@ class TestPagedSearchErrors:
         assert len(res) == 1
         entry, err = res[0]
         assert entry is None and "BIND first" in str(err)
+
+
+class TestDnsZones:
+    def _child_client(self):
+        client = _client()
+        client._tree = "DC=north,DC=sevenkingdoms,DC=local"
+        client._serverinfo = {"rootDomainNamingContext": "DC=sevenkingdoms,DC=local"}
+        return client
+
+    def test_forest_dns_zones_under_forest_root(self):
+        roots = self._child_client()._get_dns_roots()
+        assert "CN=MicrosoftDNS,DC=ForestDnsZones,DC=sevenkingdoms,DC=local" in roots
+        assert "CN=MicrosoftDNS,DC=DomainDnsZones,DC=north,DC=sevenkingdoms,DC=local" in roots
+
+    async def test_missing_container_does_not_abort_listing(self):
+        client = self._child_client()
+
+        async def fake_pagedsearch(query, attributes, tree=None, **kwargs):
+            if "DomainDnsZones" in tree:
+                yield {"attributes": {"dc": "north.sevenkingdoms.local", "dNSProperty": []}}, None
+            else:
+                yield None, LDAPSearchException("noSuchObject", "no such container")
+
+        client.pagedsearch = fake_pagedsearch
+        res = await _collect(client.dnslistzones())
+        assert [(zone, err) for zone, _, err in res] == [("north.sevenkingdoms.local", None)]
