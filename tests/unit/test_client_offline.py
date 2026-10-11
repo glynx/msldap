@@ -175,3 +175,37 @@ class TestAccountNames:
     async def test_tokengroups_user_reports_foreign_domain(self):
         res, err = await self._client().get_tokengroups_user("north\\jon.snow")
         assert res is None and "belongs to domain" in str(err)
+
+
+class _TreeCon:
+    """Directory: root with two containers, the first one has a child."""
+
+    status = MSLDAPClientStatus.RUNNING
+
+    def __init__(self):
+        self.searches = []
+        self.children = {
+            "DC=test,DC=corp": ["CN=A,DC=test,DC=corp", "CN=B,DC=test,DC=corp"],
+            "CN=A,DC=test,DC=corp": ["CN=A1,CN=A,DC=test,DC=corp"],
+        }
+
+    async def pagedsearch(self, base, query, attributes, **kwargs):
+        self.searches.append(base)
+        for dn in self.children.get(base, []):
+            yield {"objectName": dn, "attributes": {"distinguishedName": dn}}, None
+
+
+class TestTreePlot:
+    async def test_level_one_searches_only_the_root(self):
+        con = _TreeCon()
+        client = MSLDAPClient(None, None, connection=con)
+        tree = await client.get_tree_plot("DC=test,DC=corp", level=1)
+        assert tree == {"DC=test,DC=corp": {"CN=A,DC=test,DC=corp": {}, "CN=B,DC=test,DC=corp": {}}}
+        assert con.searches == ["DC=test,DC=corp"]
+
+    async def test_level_two_searches_the_children(self):
+        con = _TreeCon()
+        client = MSLDAPClient(None, None, connection=con)
+        tree = await client.get_tree_plot("DC=test,DC=corp", level=2)
+        assert tree["DC=test,DC=corp"]["CN=A,DC=test,DC=corp"] == {"CN=A,DC=test,DC=corp": {"CN=A1,CN=A,DC=test,DC=corp": {}}}
+        assert con.searches == ["DC=test,DC=corp", "CN=A,DC=test,DC=corp", "CN=B,DC=test,DC=corp"]

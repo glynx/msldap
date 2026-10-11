@@ -273,6 +273,10 @@ class MSLDAPClient:
 		"""
 
 		logger.debug('Tree, dn: %s level: %s' % (root_dn, level))
+		if level <= 0:
+			# checked before searching: the children of the last level are not needed, and
+			# searching them cost one query per object (e.g. 'cd' into a container with N objects)
+			return {}
 		tree = {}
 		async for entry, err in self._con.pagedsearch(
 			root_dn, 
@@ -286,8 +290,6 @@ class MSLDAPClient:
 				if err is not None:
 					raise err
 
-				if level == 0:
-					return {}
 				#print(entry)
 				#print(entry['attributes']['distinguishedName'])
 				if 'distinguishedName' not in entry['attributes'] or entry['attributes']['distinguishedName'] is None or entry['attributes']['distinguishedName'] == []:
