@@ -888,7 +888,39 @@ class MSLDAPClient:
 		
 		return None, Exception('Search returned no results!')
 	
+	async def _split_account_name(self, account:str):
+		"""
+		Splits 'DOMAIN\\user', 'DOMAIN/user' and 'user@domain.fqdn' into (domain, user).
+		Returns (None, user) if no domain is given. Raises if the domain is not the one of the connected server.
+		"""
+		domain = None
+		user = account
+		for sep in ('\\', '/'):
+			if sep in account:
+				domain, user = account.split(sep, 1)
+				break
+		else:
+			if '@' in account:
+				user, domain = account.rsplit('@', 1)
+		if domain is None:
+			return None, user
+
+		own = set()
+		fqdn, err = await self.get_domain_name()
+		if err is None and fqdn is not None:
+			own.add(fqdn.lower())
+			own.add(fqdn.split('.', 1)[0].lower())
+		if self._ldapinfo is not None and self._ldapinfo.name is not None:
+			own.add(self._ldapinfo.name.lower())
+		if domain.lower() not in own:
+			raise Exception('Account %s belongs to domain %s, but the connected server is in %s. Connect to a DC of that domain.' % (account, domain, fqdn))
+		return domain, user
+
 	async def get_tokengroups_user(self, samaccountname:str):
+		try:
+			_, samaccountname = await self._split_account_name(samaccountname)
+		except Exception as e:
+			return None, e
 		ldap_filter = r'(sAMAccountName=%s)' % escape_filter_chars(samaccountname)
 		user_dn = None
 		async for entry, err in self.pagedsearch(ldap_filter, ['distinguishedName']):
