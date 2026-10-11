@@ -1601,7 +1601,12 @@ class MSLDAPClientConsole(aiocmd.PromptToolkitCmd):
 			return False
 
 	async def do_certify2(self, username=None):
-		"""ADCA security test - new version"""
+		"""ADCA security test - new version
+
+		Checks all certificate templates for ESC1-4 and ESC9 from the perspective of the current
+		user or of the given user. The user can be given as 'user', 'DOMAIN/user', 'user@domain.fqdn'
+		or 'DOMAIN\\\\user' (the shell treats a single backslash as escape character) and must belong
+		to the domain of the connected server."""
 		try:
 			es = await self.do_enrollmentservices(to_print=False)
 			if es is False:

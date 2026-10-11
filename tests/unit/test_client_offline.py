@@ -153,3 +153,25 @@ class TestWhoamiFull:
         res, err = await client.whoamifull()
         assert err is not None and "not found" in str(err)
         assert res["tokengroups"] == []
+
+
+class TestAccountNames:
+    def _client(self):
+        client = _client()
+        client.domainname = "essos.local"
+        return client
+
+    @pytest.mark.parametrize("account", [
+        "khal.drogo", "essos\\khal.drogo", "ESSOS/khal.drogo", "khal.drogo@essos.local", "essos.local\\khal.drogo",
+    ])
+    async def test_own_domain(self, account):
+        _, user = await self._client()._split_account_name(account)
+        assert user == "khal.drogo"
+
+    async def test_foreign_domain_is_rejected(self):
+        with pytest.raises(Exception, match="belongs to domain north"):
+            await self._client()._split_account_name("north\\jon.snow")
+
+    async def test_tokengroups_user_reports_foreign_domain(self):
+        res, err = await self._client().get_tokengroups_user("north\\jon.snow")
+        assert res is None and "belongs to domain" in str(err)
