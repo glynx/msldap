@@ -2,7 +2,6 @@
 import pytest
 
 from support.agen import collect
-from msldap.commons.exceptions import LDAPSearchException
 
 pytestmark = [pytest.mark.live, pytest.mark.asyncio]
 
@@ -69,21 +68,12 @@ async def test_gmsa_enumeration(client):
 
 
 async def test_certificate_templates(client):
-    # ADCS may not be installed; tolerate an empty configuration partition.
-    # NOTE (KF-0007): msldap builds the ADCS tree from the *domain* DN
-    # (CN=Configuration,<defaultNamingContext>) instead of the forest-wide
-    # configurationNamingContext, so on a child-domain DC this raises
-    # noSuchObject. Tolerate that rather than fail the suite.
-    try:
-        templates = await collect(client.list_certificate_templates(), limit=10)
-    except LDAPSearchException as e:
-        pytest.skip("certificate templates not enumerable (see KF-0007): %s" % e)
+    # ADCS may not be installed; an empty result is fine. The search base is the
+    # forest-wide configurationNamingContext, so this also works on child-domain DCs.
+    templates = await collect(client.list_certificate_templates(), limit=10)
     assert isinstance(templates, list)
 
 
 async def test_enrollment_services(client):
-    try:
-        services = await collect(client.list_enrollment_services(), limit=10)
-    except LDAPSearchException as e:
-        pytest.skip("enrollment services not enumerable (see KF-0007): %s" % e)
+    services = await collect(client.list_enrollment_services(), limit=10)
     assert isinstance(services, list)

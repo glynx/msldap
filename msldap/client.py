@@ -67,6 +67,7 @@ class MSLDAPClient:
 
 		self._tree = None
 		self._ldapinfo = None
+		self._serverinfo = None
 		self._con = connection
 		self.__keepalive_task = None
 		self.keepalive_period = 10
@@ -1479,10 +1480,18 @@ class MSLDAPClient:
 		except Exception as e:
 			return False, e
 
+	def _get_configuration_nc(self) -> str:
+		"""
+		Returns the forest-wide Configuration NC. This is not necessarily below the domain DN (e.g. on child domains).
+		"""
+		if self._serverinfo is not None and self._serverinfo.get('configurationNamingContext') is not None:
+			return self._serverinfo['configurationNamingContext']
+		return 'CN=Configuration,%s' % self._tree
+
 	async def list_root_cas(self):
 		try:
 			ldap_filter = "(objectClass=certificationAuthority)"
-			tree = "CN=Certification Authorities,CN=Public Key Services,CN=Services,CN=Configuration,%s" % self._ldapinfo.distinguishedName
+			tree = "CN=Certification Authorities,CN=Public Key Services,CN=Services,%s" % self._get_configuration_nc()
 			async for entry, err in self.pagedsearch(ldap_filter, attributes = MSADCA_ATTRS, tree = tree):
 				if err is not None:
 					yield None, err
@@ -1496,7 +1505,7 @@ class MSLDAPClient:
 	async def list_ntcas(self):
 		try:
 			ldap_filter = "(objectClass=certificationAuthority)"
-			tree = "CN=NTAuthCertificates,CN=Public Key Services,CN=Services,CN=Configuration,%s" % self._ldapinfo.distinguishedName
+			tree = "CN=NTAuthCertificates,CN=Public Key Services,CN=Services,%s" % self._get_configuration_nc()
 			async for entry, err in self.pagedsearch(ldap_filter, attributes = MSADCA_ATTRS, tree = tree):
 				if err is not None:
 					yield None, err
@@ -1510,7 +1519,7 @@ class MSLDAPClient:
 	async def list_aiacas(self):
 		try:
 			ldap_filter = "(objectClass=certificationAuthority)"
-			tree = "CN=AIA,CN=Public Key Services,CN=Services,CN=Configuration,%s" % self._ldapinfo.distinguishedName
+			tree = "CN=AIA,CN=Public Key Services,CN=Services,%s" % self._get_configuration_nc()
 			async for entry, err in self.pagedsearch(ldap_filter, attributes = MSADCA_ATTRS, tree = tree):
 				if err is not None:
 					yield None, err
@@ -1524,7 +1533,7 @@ class MSLDAPClient:
 	async def list_enrollment_services(self):
 		try:
 			ldap_filter = "(objectCategory=pKIEnrollmentService)"
-			tree = "CN=Configuration,%s" % self._ldapinfo.distinguishedName
+			tree = self._get_configuration_nc()
 
 			async for entry, err in self.pagedsearch(ldap_filter, attributes = MSADEnrollmentService_ATTRS, tree = tree):
 				if err is not None:
@@ -1544,7 +1553,7 @@ class MSLDAPClient:
 			ldap_filter = "(objectCategory=pKICertificateTemplate)"
 			if name is not None:
 				ldap_filter = "(&(objectCategory=pKICertificateTemplate)(name=%s))" % name
-			tree = "CN=Configuration,%s" % self._ldapinfo.distinguishedName
+			tree = self._get_configuration_nc()
 
 			async for entry, err in self.pagedsearch(ldap_filter, attributes = MSADCertificateTemplate_ATTRS, controls=controls, tree = tree):
 				if err is not None:

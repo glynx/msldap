@@ -1,8 +1,7 @@
 """Live ADCS / PKI enumeration tests.
 
 These exercise msldap's certificate-services helpers against the *forest root*
-DC, whose Configuration partition actually contains the PKI objects. (On a
-child-domain DC these calls hit KF-0007 -- see tests/interop/live/test_enum.py.)
+DC, whose Configuration partition actually contains the PKI objects.
 
 The ``root_client`` fixture is skipped automatically when no ``extra_targets.root``
 is configured in the profile.
@@ -25,6 +24,14 @@ async def test_certificate_templates_from_root(root_client):
         assert t.cn or t.name
         # object must be serialisable (exercises the parser + to_dict path)
         assert isinstance(t.to_dict(), dict)
+
+
+async def test_certificate_templates_child_matches_root(client, root_client):
+    """The Configuration NC is forest-wide, so a child-domain DC must return the
+    same templates as the forest root (regression test for KF-0007)."""
+    root = await collect(root_client.list_certificate_templates(), limit=500)
+    child = await collect(client.list_certificate_templates(), limit=500)
+    assert sorted(t.name for t in child) == sorted(t.name for t in root)
 
 
 async def test_certificate_template_lookup_by_name(root_client):
