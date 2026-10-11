@@ -393,6 +393,9 @@ class MSADCertificateTemplate:
 		user_can_enroll = False
 		if len(set(self.enroll_sids).intersection(set(tokengroups))) > 0:
 			user_can_enroll = True
+		# requests that need a manager approval or authorized signatures are not issued directly
+		if self.requires_manager_approval() or self.requires_authorized_signatures():
+			user_can_enroll = False
 
 		if user_can_enroll and self.allows_authentication() and self.allows_to_specify_san():
 			vulns['ESC1'] = {

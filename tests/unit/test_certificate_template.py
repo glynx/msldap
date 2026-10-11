@@ -2,7 +2,7 @@
 import pytest
 
 from msldap.ldap_objects.adcertificatetemplate import (
-    EKU_CLIENT_AUTHENTICATION_OID, CertificateNameFlag, MSADCertificateTemplate)
+    EKU_CLIENT_AUTHENTICATION_OID, CertificateNameFlag, EnrollmentFlag, MSADCertificateTemplate)
 
 pytestmark = pytest.mark.unit
 
@@ -31,6 +31,25 @@ def test_implicit_token_groups_can_enroll(enroll_sid):
 
 def test_foreign_group_cannot_enroll():
     assert "ESC1" not in _esc1_template("S-1-5-21-9-9-9-513").is_vulnerable2(USER_TOKEN)
+
+
+def test_manager_approval_prevents_enrollment_escs():
+    t = _esc1_template("S-1-5-21-1-2-3-513")
+    t.Enrollment_Flag = int(EnrollmentFlag.PEND_ALL_REQUESTS)
+    assert t.is_vulnerable2(USER_TOKEN) == {}
+
+
+def test_authorized_signatures_prevent_enrollment_escs():
+    t = _esc1_template("S-1-5-21-1-2-3-513")
+    t.RA_Signature = 1
+    assert t.is_vulnerable2(USER_TOKEN) == {}
+
+
+def test_manager_approval_does_not_hide_dangerous_permissions():
+    t = _esc1_template("S-1-5-21-1-2-3-513")
+    t.Enrollment_Flag = int(EnrollmentFlag.PEND_ALL_REQUESTS)
+    t.write_dacl_sids = {"S-1-5-21-1-2-3-513"}
+    assert set(t.is_vulnerable2(USER_TOKEN)) == {"ESC4"}
 
 
 def test_enrollment_services_without_hostname():
