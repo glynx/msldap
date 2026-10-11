@@ -116,6 +116,7 @@ class PromptToolkitCmd:
         return NestedCompleter({com: self._completer_for_command(com) for com in self.command_list})
 
     def _completer_for_command(self, command):
+        command = self.aliases.get(command, command)
         if not hasattr(self, "_%s_completions" % command):
             return WordCompleter([])
         return getattr(self, "_%s_completions" % command)()
@@ -144,6 +145,9 @@ class PromptToolkitCmd:
     def command_list(self):
         return [attr[len(self.ATTR_START):]
                 for attr in dir(self) if attr.startswith(self.ATTR_START)] + list(self.aliases.keys())
+
+    def _help_completions(self):
+        return WordCompleter(sorted(c for c in self.command_list if self._get_command(c) != self.do_help))
 
     def do_help(self, command=None):
         """Lists all commands, or shows the usage and full description of a single command"""
